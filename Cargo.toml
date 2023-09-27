@@ -1,0 +1,15 @@
+[package]
+name = "flashtext2"
+version = "0.0.0"
+authors = ["Shneor E."]
+edition = "2021"
+license = "GPL-3"
+description = "The FlashText algorithm implemented in Rust"
+homepage = "https://github.com/shner-elmo/flashtext2-rs"
+documentation = "https://github.com/shner-elmo/flashtext2-rs/blob/master/README.md"
+repository = "https://github.com/shner-elmo/flashtext2-rs"
+readme = "README.md"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
