@@ -1,9 +1,9 @@
 [package]
 name = "flashtext2"
-version = "0.0.0"
+version = "0.0.1"
 authors = ["Shneor E."]
 edition = "2021"
-license = "GPL-3"
+license = "GPL-3.0-only"
 description = "The FlashText algorithm implemented in Rust"
 homepage = "https://github.com/shner-elmo/flashtext2-rs"
 documentation = "https://github.com/shner-elmo/flashtext2-rs/blob/master/README.md"

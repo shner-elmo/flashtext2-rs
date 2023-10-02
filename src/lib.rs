@@ -2,26 +2,23 @@ use std::fmt::Debug;
 use std::collections::{HashSet, HashMap};
 
 
-#[derive(Debug)]
-pub struct KeywordSpan {
-    pub keyword: String,
-    pub start: usize,
-    pub end: usize,
-}
+// use a tuple-struct so its easier to unpack when iterating on the matches
+#[derive(PartialEq, Debug)]
+pub struct KeywordSpan (String, usize, usize);
 
 
-#[derive(Debug, Default)]
+#[derive(PartialEq, Debug, Default)]
 struct Node {
     clean_word: Option<String>,
     children: HashMap<String, Node>,  // TODO should this be an Option or just an empty HashMap?
 }
 
 
-#[derive(Debug)]
+#[derive(PartialEq, Debug)]
 pub struct KeywordProcessor {
     trie: Node,
     len: usize,  // the number of keywords the struct contains (not the number of nodes)
-    non_words_boundaries: HashSet<char>,
+    non_word_boundaries: HashSet<char>,
     case_sensitive: bool,
 }
 
@@ -30,30 +27,30 @@ impl KeywordProcessor {
         Self {
             trie: Node::default(),
             len: 0,
-            non_words_boundaries: HashSet::from_iter("0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_".chars()),
+            non_word_boundaries: HashSet::from_iter("0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_".chars()),
             case_sensitive,
         }
     }
 
-    // fn from(arr: &[&str]) -> Self {
-    //     Self::from_iter(arr.into_iter())
-    // }
-
-    // fn from_iter<'a, I>(iter: I) -> Self
-    // where
-    //     I: Iterator<Item = &'a str>,
-    // {
-    //     let mut this = Self::new();
-    //     for word in iter {
-    //         this.append(word.to_string());
-    //     }
-    //     this
-    // }
+    pub fn with_non_word_boundaries(chars: HashSet<char>, case_sensitive: bool) -> Self {
+        Self { 
+            trie: Node::default(),
+            len: 0,
+            non_word_boundaries: chars,
+            case_sensitive,
+        }
+    }
 
     pub fn len(&self) -> usize {
         self.len
     }
 
+    // we want to keep the implementation private of the trie, because it will probably change in the future
+    // fn trie(&self) -> &Node {
+    //     &self.trie
+    // }
+
+    // note: if you're not sure if ...
     pub fn add_keyword(&mut self, word: &str, clean_word: &str) {
         let normalized_word = {
             if !self.case_sensitive {
@@ -65,15 +62,16 @@ impl KeywordProcessor {
 
         let mut trie = &mut self.trie;
 
-        for word in split_text(&normalized_word, &self.non_words_boundaries) {
+        for word in split_text(&normalized_word, &self.non_word_boundaries) {
             trie = trie.children.entry(word).or_default();
         };
 
         // increment `len` only if the keyword isn't already there
         if trie.clean_word.is_none() {
-            trie.clean_word = Some(clean_word.to_string());
             self.len += 1;
         }
+        // but even if there is already a keyword, the user can still overwrite its `clean_word`
+        trie.clean_word = Some(clean_word.to_string());
     }
 
     // pub fn add_keyword_from(&mut self, words: &[(&str, &str)]) {
@@ -92,7 +90,7 @@ impl KeywordProcessor {
             }
         };
 
-        let mut words = split_text(&text, &self.non_words_boundaries);
+        let mut words = split_text(&text, &self.non_word_boundaries);
         words.push("".to_string());
         let mut keywords_found = vec![];
         let mut node = &self.trie;
@@ -137,7 +135,7 @@ impl KeywordProcessor {
             }
         };
 
-        let mut words = split_text(&text, &self.non_words_boundaries);
+        let mut words = split_text(&text, &self.non_word_boundaries);
         words.insert(0, "".to_string());
         words.push("".to_string());
 
@@ -172,11 +170,11 @@ impl KeywordProcessor {
                 }
             } else {
                 if last_keyword_found.is_some() {
-                    keywords_found.push(KeywordSpan {
-                        keyword: last_keyword_found.unwrap().clone(),
-                        start: lst_len[last_kw_found_start_idx],
-                        end: lst_len[last_kw_found_end_idx],
-                    });
+                    keywords_found.push(KeywordSpan(
+                        last_keyword_found.unwrap().clone(),
+                        lst_len[last_kw_found_start_idx],
+                        lst_len[last_kw_found_end_idx],
+                    ));
 
                     last_keyword_found = None;
                     idx -= 1;
@@ -194,21 +192,42 @@ impl KeywordProcessor {
     pub fn replace_keywords(&self, text: &str) -> String {
         let mut string = String::with_capacity(text.len());
         let mut prev_end = 0;
-        for keyword in self.extract_keywords_with_span(&text) {
-            string += &text[prev_end..keyword.start];
-            string += &keyword.keyword;
-            prev_end = keyword.end;
+        for KeywordSpan(keyword, start, end) in self.extract_keywords_with_span(&text) {
+            string += &text[prev_end..start];
+            string += &keyword;
+            prev_end = end;
         }
         string
     }
 }
 
+impl From<&[&str]> for KeywordProcessor {
+    fn from(slice: &[&str]) -> Self {
+        let mut this = Self::new(false);
+        for word in slice {
+            this.add_keyword(word, word);
+        }
+        this
+    }
+}
 
-fn split_text(text: &str, non_words_boundaries: &HashSet<char>) -> Vec<String> {
+impl From<&[(&str, &str)]> for KeywordProcessor {
+    fn from(slice:&[(&str, &str)]) -> Self {
+        let mut this = Self::new(false);
+        for (word, clean_word) in slice {
+            this.add_keyword(word, clean_word);
+        }
+        this
+    }
+}
+
+
+// TODO: benchmark this function Vs Regex(r'([^a-zA-Z\d])')
+fn split_text(text: &str, non_word_boundaries: &HashSet<char>) -> Vec<String> {
     let mut vec = vec![];
     let mut word = String::new();
     for ch in text.chars() {
-        if non_words_boundaries.contains(&ch) {
+        if non_word_boundaries.contains(&ch) {
             word.push(ch);
         } else {
             if word != "" {
@@ -225,3 +244,174 @@ fn split_text(text: &str, non_words_boundaries: &HashSet<char>) -> Vec<String> {
     }
     vec
 }
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_split_text() {
+        let non_word_boundaries = KeywordProcessor::new(false).non_word_boundaries;
+
+        // empty string shouldn't return anything
+        assert!(split_text("", &non_word_boundaries).is_empty());
+
+        let cases = [
+            ("Hello", vec!["Hello"]),
+            ("Hello ", vec!["Hello", " "]),
+            ("Hello World", vec!["Hello", " ", "World"]),
+            (" Hello World ", vec![" ", "Hello", " ", "World", " "]),
+            ("Hannibal was born in 247 BC, death date; unknown.", vec!["Hannibal", " ", "was", " ", "born", " ", "in", " ", "247", " ", "BC", ",",  " ", "death", " ", "date", ";", " ", "unknown", "."]),
+            ("!!'fesf'esfes 32!!..", vec!["!", "!", "'", "fesf", "'", "esfes", " ", "32", "!", "!", ".", "."]),
+            ("   py  .  ", vec![" ", " ", " ", "py", " ", " ", ".", " ", " "]),
+        ];
+        for (string, vec) in cases {
+            assert_eq!(split_text(string, &non_word_boundaries), vec);
+        }
+    }
+
+    #[test]
+    fn test_len() {
+        // start at zero
+        assert_eq!(KeywordProcessor::new(true).len, 0);
+
+        //
+        let mut kp = KeywordProcessor::new(true);
+
+        kp.add_keyword("hello", "hey");
+        assert_eq!(kp.len, 1);
+
+        kp.add_keyword("hey", "hey");
+        assert_eq!(kp.len, 2);
+
+        kp.add_keyword("bye", "hey");
+        assert_eq!(kp.len, 3);
+
+        // test same word
+        let mut kp = KeywordProcessor::new(true);
+        kp.add_keyword("hey", "hey");
+        assert_eq!(kp.len, 1);
+
+        kp.add_keyword("hey", "hey");
+        assert_eq!(kp.len, 1);
+
+        kp.add_keyword("hey", "bye");
+        assert_eq!(kp.len, 1);
+
+        // test same word, different casing (sensitive)
+        let mut kp = KeywordProcessor::new(true);
+        kp.add_keyword("hey", "hey");
+        assert_eq!(kp.len, 1);
+
+        kp.add_keyword("HEY", "hey");
+        assert_eq!(kp.len, 2);
+
+        // test same word, different casing (insensitive)
+        let mut kp = KeywordProcessor::new(false);
+        kp.add_keyword("hey", "hey");
+        assert_eq!(kp.len, 1);
+
+        kp.add_keyword("HEY", "hey");
+        assert_eq!(kp.len, 1);
+    }
+
+    #[test]
+    fn test_add_keyword() {
+        // empty
+        let kp = KeywordProcessor::new(true);
+        let trie = Node {
+            clean_word: None,
+            children: HashMap::new(),
+        };
+        assert_eq!(kp.trie, trie);
+
+        // test few keywords
+        let mut kp = KeywordProcessor::new(true);
+        kp.add_keyword("hey", "Hey");
+        kp.add_keyword("hello", "Hello!");
+        kp.add_keyword("hello world", "Hello World");
+        kp.add_keyword("C# is no good :(", "C# bad");
+
+        let trie = Node {
+            clean_word: None,
+            children: HashMap::from([
+                (
+                    "hey".to_string(),
+                    Node { clean_word: Some("Hey".to_string()), children: HashMap::new()},
+                ),
+                (
+                    "hello".to_string(),
+                    Node { clean_word: Some("Hello!".to_string()), children: HashMap::from([
+                        (
+                            " ".to_string(),
+                            Node { clean_word: None, children: HashMap::from([
+                                (
+                                    "world".to_string(),
+                                    Node { clean_word: Some("Hello World".to_string()), children: HashMap::new()},
+                                ),
+                            ])}
+                        ),
+                    ])},
+                ),
+                (
+                    "C".to_string(),
+                    Node { clean_word: None, children: HashMap::from([
+                        (
+                            "#".to_string(),
+                            Node { clean_word: None, children:  HashMap::from([
+                                (
+                                    " ".to_string(),
+                                    Node { clean_word: None, children:  HashMap::from([
+                                        (
+                                            "is".to_string(),
+                                            Node { clean_word: None, children:  HashMap::from([
+                                                (
+                                                    " ".to_string(),
+                                                    Node { clean_word: None, children:  HashMap::from([
+                                                        (
+                                                            "no".to_string(),
+                                                            Node { clean_word: None, children:  HashMap::from([
+                                                                (
+                                                                    " ".to_string(),
+                                                                    Node { clean_word: None, children:  HashMap::from([
+                                                                        (
+                                                                            "good".to_string(),
+                                                                            Node { clean_word: None, children:  HashMap::from([
+                                                                                (
+                                                                                    " ".to_string(),
+                                                                                    Node { clean_word: None, children:  HashMap::from([
+                                                                                        (
+                                                                                            ":".to_string(),
+                                                                                            Node { clean_word: None, children:  HashMap::from([
+                                                                                                (
+                                                                                                    "(".to_string(),
+                                                                                                    Node { clean_word: Some("C# bad".to_string()), children:  HashMap::new() }
+                                                                                                )
+                                                                                            ])},
+                                                                                        ),
+                                                                                    ])},
+                                                                                ),
+                                                                            ])},
+                                                                        ),
+                                                                    ])},
+                                                                ),
+                                                            ])},
+                                                        ),
+                                                    ])},
+                                                ),
+                                            ])},
+                                        ),
+                                    ])},
+                                ),
+                            ])},
+                        ),
+                    ])},
+                ),
+            ]),
+        };
+        assert_eq!(kp.trie, trie);
+    }
+}
+
+// TODO: move these tests to a separate module (but they need to access private Structs/fields)!!
