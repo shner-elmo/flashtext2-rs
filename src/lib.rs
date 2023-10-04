@@ -31,6 +31,7 @@ impl KeywordProcessor {
         }
     }
 
+    // TODO: should the order of the parameters be reversed?
     pub fn with_non_word_boundaries(chars: HashSet<char>, case_sensitive: bool) -> Self {
         Self { 
             trie: Node::default(),
@@ -38,6 +39,14 @@ impl KeywordProcessor {
             non_word_boundaries: chars,
             case_sensitive,
         }
+    }
+
+    pub fn non_word_boundaries(&self) -> HashSet<char> {
+        self.non_word_boundaries.clone()
+    }
+
+    pub fn case_sensitive(&self) -> bool {
+        self.case_sensitive
     }
 
     pub fn len(&self) -> usize {
@@ -195,7 +204,7 @@ impl KeywordProcessor {
     pub fn replace_keywords(&self, text: &str) -> String {
         let mut string = String::with_capacity(text.len());
         let mut prev_end = 0;
-        for (keyword, start, end) in self.extract_keywords_with_span(&text) {
+        for (keyword, start, end) in self.extract_keywords_with_span(text) {
             string += &text[prev_end..start];
             string += &keyword;
             prev_end = end;
@@ -240,7 +249,7 @@ fn split_text(text: &str, non_word_boundaries: &HashSet<char>) -> Vec<String> {
         if non_word_boundaries.contains(&ch) {
             word.push(ch);
         } else {
-            if word != "" {
+            if !word.is_empty() {
                 vec.push(word.clone());
                 word.clear();
             }
@@ -249,7 +258,7 @@ fn split_text(text: &str, non_word_boundaries: &HashSet<char>) -> Vec<String> {
     }
 
     // check if there is a word that we haven't added yet
-    if word != "" {
+    if !word.is_empty() {
         vec.push(word.clone());
     }
     vec
