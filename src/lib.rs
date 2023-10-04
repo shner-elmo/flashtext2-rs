@@ -2,9 +2,8 @@ use std::fmt::Debug;
 use std::collections::{HashSet, HashMap};
 
 
-// use a tuple-struct so its easier to unpack when iterating on the matches
-#[derive(PartialEq, Debug)]
-pub struct KeywordSpan (String, usize, usize);
+// use a tuple so its easier to unpack when iterating on the matches (and so the conversion is easier with PyO3)
+pub type KeywordSpan = (String, usize, usize);
 
 
 #[derive(PartialEq, Debug, Default)]
@@ -45,12 +44,16 @@ impl KeywordProcessor {
         self.len
     }
 
-    // we want to keep the implementation private of the trie, because it will probably change in the future
+    pub fn is_empty(&self) -> bool {
+        // or `self.trie.children.is_empty()`
+        self.len == 0
+    }
+
+    // we want to keep the implementation of the trie private, because it will probably change in the future
     // fn trie(&self) -> &Node {
     //     &self.trie
     // }
 
-    // note: if you're not sure if ...
     pub fn add_keyword(&mut self, word: &str, clean_word: &str) {
         let normalized_word = {
             if !self.case_sensitive {
@@ -74,7 +77,7 @@ impl KeywordProcessor {
         trie.clean_word = Some(clean_word.to_string());
     }
 
-    // pub fn add_keyword_from(&mut self, words: &[(&str, &str)]) {
+    // pub fn add_keywords_from(&mut self, words: &[(&str, &str)]) {
     //     for (word, clean_word) in words {
     //         self.add_keyword(word, clean_word);
     //     }
@@ -170,7 +173,7 @@ impl KeywordProcessor {
                 }
             } else {
                 if last_keyword_found.is_some() {
-                    keywords_found.push(KeywordSpan(
+                    keywords_found.push((
                         last_keyword_found.unwrap().clone(),
                         lst_len[last_kw_found_start_idx],
                         lst_len[last_kw_found_end_idx],
@@ -192,12 +195,19 @@ impl KeywordProcessor {
     pub fn replace_keywords(&self, text: &str) -> String {
         let mut string = String::with_capacity(text.len());
         let mut prev_end = 0;
-        for KeywordSpan(keyword, start, end) in self.extract_keywords_with_span(&text) {
+        for (keyword, start, end) in self.extract_keywords_with_span(&text) {
             string += &text[prev_end..start];
             string += &keyword;
             prev_end = end;
         }
+        string += &text[prev_end..];
         string
+    }
+}
+
+impl Default for KeywordProcessor {
+    fn default() -> Self {
+        Self::new(false)
     }
 }
 
@@ -249,6 +259,17 @@ fn split_text(text: &str, non_word_boundaries: &HashSet<char>) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_default() {
+        let kp = KeywordProcessor {
+            trie: Node::default(),
+            len: 0,
+            case_sensitive: false,
+            non_word_boundaries: HashSet::from_iter("0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_".chars()),
+        };
+        assert_eq!(kp, KeywordProcessor::default());
+    }
 
     #[test]
     fn test_split_text() {
