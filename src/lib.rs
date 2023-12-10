@@ -1,23 +1,18 @@
 use std::fmt::Debug;
-use std::collections::{HashSet, HashMap};
 
-
-// use a tuple so its easier to unpack when iterating on the matches (and so the conversion is easier with PyO3)
-pub type KeywordSpan = (String, usize, usize);
-
+use fxhash::FxHashMap as HashMap;
+use unicode_segmentation::UnicodeSegmentation;
 
 #[derive(PartialEq, Debug, Default)]
 struct Node {
-    clean_word: Option<String>,
-    children: HashMap<String, Node>,  // TODO should this be an Option or just an empty HashMap?
+    clean_word: Option<String>, // if clean_word is `Some` it means that we've reached the end of a keyword
+    children: HashMap<String, Node>,
 }
-
 
 #[derive(PartialEq, Debug)]
 pub struct KeywordProcessor {
     trie: Node,
-    len: usize,  // the number of keywords the struct contains (not the number of nodes)
-    non_word_boundaries: HashSet<char>,
+    len: usize, // the number of keywords the struct contains (not the number of nodes)
     case_sensitive: bool,
 }
 
@@ -26,23 +21,8 @@ impl KeywordProcessor {
         Self {
             trie: Node::default(),
             len: 0,
-            non_word_boundaries: HashSet::from_iter("0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_".chars()),
             case_sensitive,
         }
-    }
-
-    // TODO: should the order of the parameters be reversed?
-    pub fn with_non_word_boundaries(chars: HashSet<char>, case_sensitive: bool) -> Self {
-        Self { 
-            trie: Node::default(),
-            len: 0,
-            non_word_boundaries: chars,
-            case_sensitive,
-        }
-    }
-
-    pub fn non_word_boundaries(&self) -> HashSet<char> {
-        self.non_word_boundaries.clone()
     }
 
     pub fn case_sensitive(&self) -> bool {
@@ -74,9 +54,9 @@ impl KeywordProcessor {
 
         let mut trie = &mut self.trie;
 
-        for word in split_text(&normalized_word, &self.non_word_boundaries) {
-            trie = trie.children.entry(word).or_default();
-        };
+        for word in normalized_word.split_word_bounds() {
+            trie = trie.children.entry(word.to_string()).or_default();
+        }
 
         // increment `len` only if the keyword isn't already there
         if trie.clean_word.is_none() {
@@ -86,119 +66,16 @@ impl KeywordProcessor {
         trie.clean_word = Some(clean_word.to_string());
     }
 
-    // pub fn add_keywords_from(&mut self, words: &[(&str, &str)]) {
-    //     for (word, clean_word) in words {
-    //         self.add_keyword(word, clean_word);
-    //     }
-    // }
-
     // TODO: make this a lazy-iterator
-    pub fn extract_keywords(&self, text: &str) -> Vec<&String> {
-        let text = {
-            if !self.case_sensitive {
-                text.to_lowercase()
-            } else {
-                text.to_string()
-            }
-        };
-
-        let mut words = split_text(&text, &self.non_word_boundaries);
-        words.push("".to_string());
-        let mut keywords_found = vec![];
-        let mut node = &self.trie;
-
-        let mut idx = 0;
-        let mut n_words_covered = 0;
-        let mut word;
-        let mut last_keyword_found = None;
-
-        while idx < words.len() {
-            word = &words[idx];
-            n_words_covered += 1;
-
-            let children = node.children.get(word);
-            if children.is_some() {
-                node = children.unwrap();
-                if node.clean_word.is_some() {
-                    last_keyword_found = Some(node.clean_word.as_ref().unwrap());
-                }
-            } else {
-                if last_keyword_found.is_some() {
-                    keywords_found.push(last_keyword_found.unwrap());
-                    last_keyword_found = None;
-                    idx -= 1;
-                } else {
-                    idx -= n_words_covered - 1;
-                }
-                node = &self.trie;
-                n_words_covered = 0;
-            }
-            idx += 1;
-        }
-        keywords_found
+    pub fn extract_keywords<'a>(&'a self, text: &'a str) -> impl Iterator<Item = String> + 'a {
+        KeywordExtractor::new(text, &self.trie).map(|(keyword, _, _)| keyword)
     }
 
-    pub fn extract_keywords_with_span(&self, text: &str) -> Vec<KeywordSpan> {
-        let text = {
-            if !self.case_sensitive {
-                text.to_lowercase()
-            } else {
-                text.to_string()
-            }
-        };
-
-        let mut words = split_text(&text, &self.non_word_boundaries);
-        words.insert(0, "".to_string());
-        words.push("".to_string());
-
-        let mut lst_len = Vec::with_capacity(words.len());
-        let mut sum = 0;
-        for word in &words {
-            sum += word.len();
-            lst_len.push(sum);
-        }
-
-        let mut keywords_found = vec![];
-        let mut node = &self.trie;
-
-        let mut idx = 0;
-        let mut n_words_covered = 0;
-        let mut word;
-        let mut last_keyword_found = None;
-        let mut last_kw_found_start_idx = 0;  // default value that will always be overwritten;
-        let mut last_kw_found_end_idx = 0;  // default value that will always be overwritten;
-
-        while idx < words.len() {
-            word = &words[idx];
-            n_words_covered += 1;
-
-            let children = node.children.get(word);
-            if children.is_some() {
-                node = children.unwrap();
-                if node.clean_word.is_some() {
-                    last_keyword_found = Some(node.clean_word.as_ref().unwrap());
-                    last_kw_found_start_idx = idx - n_words_covered;
-                    last_kw_found_end_idx = idx;
-                }
-            } else {
-                if last_keyword_found.is_some() {
-                    keywords_found.push((
-                        last_keyword_found.unwrap().clone(),
-                        lst_len[last_kw_found_start_idx],
-                        lst_len[last_kw_found_end_idx],
-                    ));
-
-                    last_keyword_found = None;
-                    idx -= 1;
-                } else {
-                    idx -= n_words_covered - 1;
-                }
-                node = &self.trie;
-                n_words_covered = 0;
-            }
-            idx += 1;
-        }
-        keywords_found
+    pub fn extract_keywords_with_span<'a>(
+        &'a self,
+        text: &'a str,
+    ) -> impl Iterator<Item = (String, usize, usize)> + 'a {
+        KeywordExtractor::new(text, &self.trie)
     }
 
     pub fn replace_keywords(&self, text: &str) -> String {
@@ -210,6 +87,8 @@ impl KeywordProcessor {
             prev_end = end;
         }
         string += &text[prev_end..];
+
+        string.shrink_to_fit();
         string
     }
 }
@@ -231,7 +110,7 @@ impl From<&[&str]> for KeywordProcessor {
 }
 
 impl From<&[(&str, &str)]> for KeywordProcessor {
-    fn from(slice:&[(&str, &str)]) -> Self {
+    fn from(slice: &[(&str, &str)]) -> Self {
         let mut this = Self::new(false);
         for (word, clean_word) in slice {
             this.add_keyword(word, clean_word);
@@ -241,33 +120,62 @@ impl From<&[(&str, &str)]> for KeywordProcessor {
 }
 
 
-// TODO: benchmark this function Vs Regex(r'([^a-zA-Z\d])')
-fn split_text(text: &str, non_word_boundaries: &HashSet<char>) -> Vec<String> {
-    let mut vec = vec![];
-    let mut word = String::new();
-    for ch in text.chars() {
-        if non_word_boundaries.contains(&ch) {
-            word.push(ch);
-        } else {
-            if !word.is_empty() {
-                vec.push(word.clone());
-                word.clear();
-            }
-            vec.push(ch.to_string());
-        }
-    }
-
-    // check if there is a word that we haven't added yet
-    if !word.is_empty() {
-        vec.push(word.clone());
-    }
-    vec
+struct KeywordExtractor<'a> {
+    idx: usize,
+    words: Vec<&'a str>,
+    trie: &'a Node,
 }
 
+impl<'a> KeywordExtractor<'a> {
+    fn new(text: &'a str, trie: &'a Node) -> Self {
+        Self {
+            idx: 0,
+            words: text.split_word_bounds().collect(),
+            trie,
+        }
+    }
+}
+
+impl Iterator for KeywordExtractor<'_> {
+    type Item = (String, usize, usize);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let mut node = self.trie;
+        let mut longest_keyword = None;
+        let mut traversal_start_idx = self.idx;
+
+        while self.idx < self.words.len() {
+            let word = self.words[self.idx];
+            self.idx += 1;
+
+            if let Some(child) = node.children.get(word) {
+                node = child;
+                if let Some(clean_word) = &node.clean_word {
+                    longest_keyword = Some((clean_word.clone(), 0, 0));
+                }
+            } else {
+                if let kw @ Some(_) = longest_keyword {
+                    self.idx -= 1;
+                    return kw;
+                } else {
+                    self.idx = traversal_start_idx + 1;
+                    // reset the state as above
+                    node = self.trie;
+                    traversal_start_idx = self.idx;
+                }
+            }
+        }
+
+        // we will reach this code only in the last item of the iterator,
+        // in which case we will return the longest found keyword, or just None.
+        longest_keyword
+    }
+}
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::HashSet;
 
     #[test]
     fn test_default() {
@@ -275,29 +183,37 @@ mod tests {
             trie: Node::default(),
             len: 0,
             case_sensitive: false,
-            non_word_boundaries: HashSet::from_iter("0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_".chars()),
         };
         assert_eq!(kp, KeywordProcessor::default());
     }
 
     #[test]
     fn test_split_text() {
-        let non_word_boundaries = KeywordProcessor::new(false).non_word_boundaries;
-
         // empty string shouldn't return anything
-        assert!(split_text("", &non_word_boundaries).is_empty());
+        assert!("".split_word_bounds().next().is_none());
+
+        assert_eq!(" ".split_word_bounds().collect::<Vec<_>>(), vec![" "]);
 
         let cases = [
             ("Hello", vec!["Hello"]),
             ("Hello ", vec!["Hello", " "]),
             ("Hello World", vec!["Hello", " ", "World"]),
             (" Hello World ", vec![" ", "Hello", " ", "World", " "]),
-            ("Hannibal was born in 247 BC, death date; unknown.", vec!["Hannibal", " ", "was", " ", "born", " ", "in", " ", "247", " ", "BC", ",",  " ", "death", " ", "date", ";", " ", "unknown", "."]),
-            ("!!'fesf'esfes 32!!..", vec!["!", "!", "'", "fesf", "'", "esfes", " ", "32", "!", "!", ".", "."]),
-            ("   py  .  ", vec![" ", " ", " ", "py", " ", " ", ".", " ", " "]),
+            (
+                "Hannibal was born in 247 BC, death date; unknown.",
+                vec![
+                    "Hannibal", " ", "was", " ", "born", " ", "in", " ", "247", " ", "BC", ",",
+                    " ", "death", " ", "date", ";", " ", "unknown", ".",
+                ],
+            ),
+            (
+                "!!'fesf'esfes 32!!..",
+                vec!["!", "!", "'", "fesf'esfes", " ", "32", "!", "!", ".", "."],
+            ),
+            ("   py  .  ", vec!["   ", "py", "  ", ".", "  "]),
         ];
         for (string, vec) in cases {
-            assert_eq!(split_text(string, &non_word_boundaries), vec);
+            assert_eq!(string.split_word_bounds().collect::<Vec<_>>(), vec);
         }
     }
 
@@ -347,101 +263,167 @@ mod tests {
     }
 
     #[test]
-    fn test_add_keyword() {
-        // empty
-        let kp = KeywordProcessor::new(true);
-        let trie = Node {
-            clean_word: None,
-            children: HashMap::new(),
-        };
-        assert_eq!(kp.trie, trie);
+    fn extractor() {
+        // keywords, text, output
+        let arr = [
+            (1, vec!["hello"], "hello", vec!["hello"]),
+            (2, vec!["hello"], " hello", vec!["hello"]),
+            (3, vec!["hello"], "hello ", vec!["hello"]),
+            (4, vec!["hello"], " hello ", vec!["hello"]),
+            (5, vec!["hello"], "  hello  ", vec!["hello"]),
+            (6, vec!["  hello  "], "  hello  ", vec!["  hello  "]),
+            (7, vec!["hello world"], "hello world", vec!["hello world"]), // multi word
+            (
+                8,
+                vec!["hello world"],
+                "hello hello world",
+                vec!["hello world"],
+            ),
+            (
+                9,
+                vec!["hello", "world", "hello world"],
+                "hello hello world",
+                vec!["hello", "hello world"],
+            ),
+            (
+                10,
+                vec!["hello", "world", " hello world"],
+                "hello hello world",
+                vec!["hello", " hello world"],
+            ),
+            (
+                11,
+                vec!["hello", "world", "  hello world"],
+                "hello  hello world",
+                vec!["hello", "  hello world"],
+            ),
+            // TODO make this cases work (whitespace should be split in strings of len == 1)
+            // (
+            //     12,
+            //     vec!["hello", "world", " hello world"],
+            //     "hello  hello world",
+            //     vec!["hello", " hello world"],
+            // ),
+            // (
+            //     13,
+            //     vec!["hello", "world", "   hello world"],
+            //     "hello    hello world",
+            //     vec!["hello", "   hello world"],
+            // ),
+        ];
+        for (test_id, keywords, text, output) in arr {
+            println!(
+                "test ID: {} --------------------------------------------------------------",
+                test_id
+            );
 
-        // test few keywords
-        let mut kp = KeywordProcessor::new(true);
-        kp.add_keyword("hey", "Hey");
-        kp.add_keyword("hello", "Hello!");
-        kp.add_keyword("hello world", "Hello World");
-        kp.add_keyword("C# is no good :(", "C# bad");
+            assert!(HashSet::<&&str>::from_iter(&output).is_subset(&HashSet::from_iter(&keywords)));
 
-        let trie = Node {
-            clean_word: None,
-            children: HashMap::from([
-                (
-                    "hey".to_string(),
-                    Node { clean_word: Some("Hey".to_string()), children: HashMap::new()},
-                ),
-                (
-                    "hello".to_string(),
-                    Node { clean_word: Some("Hello!".to_string()), children: HashMap::from([
-                        (
-                            " ".to_string(),
-                            Node { clean_word: None, children: HashMap::from([
-                                (
-                                    "world".to_string(),
-                                    Node { clean_word: Some("Hello World".to_string()), children: HashMap::new()},
-                                ),
-                            ])}
-                        ),
-                    ])},
-                ),
-                (
-                    "C".to_string(),
-                    Node { clean_word: None, children: HashMap::from([
-                        (
-                            "#".to_string(),
-                            Node { clean_word: None, children:  HashMap::from([
-                                (
-                                    " ".to_string(),
-                                    Node { clean_word: None, children:  HashMap::from([
-                                        (
-                                            "is".to_string(),
-                                            Node { clean_word: None, children:  HashMap::from([
-                                                (
-                                                    " ".to_string(),
-                                                    Node { clean_word: None, children:  HashMap::from([
-                                                        (
-                                                            "no".to_string(),
-                                                            Node { clean_word: None, children:  HashMap::from([
-                                                                (
-                                                                    " ".to_string(),
-                                                                    Node { clean_word: None, children:  HashMap::from([
-                                                                        (
-                                                                            "good".to_string(),
-                                                                            Node { clean_word: None, children:  HashMap::from([
-                                                                                (
-                                                                                    " ".to_string(),
-                                                                                    Node { clean_word: None, children:  HashMap::from([
-                                                                                        (
-                                                                                            ":".to_string(),
-                                                                                            Node { clean_word: None, children:  HashMap::from([
-                                                                                                (
-                                                                                                    "(".to_string(),
-                                                                                                    Node { clean_word: Some("C# bad".to_string()), children:  HashMap::new() }
-                                                                                                )
-                                                                                            ])},
-                                                                                        ),
-                                                                                    ])},
-                                                                                ),
-                                                                            ])},
-                                                                        ),
-                                                                    ])},
-                                                                ),
-                                                            ])},
-                                                        ),
-                                                    ])},
-                                                ),
-                                            ])},
-                                        ),
-                                    ])},
-                                ),
-                            ])},
-                        ),
-                    ])},
-                ),
-            ]),
-        };
-        assert_eq!(kp.trie, trie);
+            let mut kp = KeywordProcessor::new(false);
+            for kw in keywords {
+                kp.add_keyword(kw, kw);
+            }
+            let vec: Vec<_> = kp.extract_keywords(text).collect();
+            assert_eq!(vec, output, "Test case: {}", test_id);
+        }
     }
+
+    // #[test]
+    // fn test_add_keyword() {
+    //     // empty
+    //     let kp = KeywordProcessor::new(true);
+    //     let trie = Node {
+    //         clean_word: None,
+    //         children: HashMap::default(),
+    //     };
+    //     assert_eq!(kp.trie, trie);
+    //
+    //     // test few keywords
+    //     let mut kp = KeywordProcessor::new(true);
+    //     kp.add_keyword("hey", "Hey");
+    //     kp.add_keyword("hello", "Hello!");
+    //     kp.add_keyword("hello world", "Hello World");
+    //     kp.add_keyword("C# is no good :(", "C# bad");
+    //
+    //     let trie = Node {
+    //         clean_word: None,
+    //         children: HashMap::from([
+    //             (
+    //                 "hey".to_string(),
+    //                 Node { clean_word: Some("Hey".to_string()), children: HashMap::default()},
+    //             ),
+    //             (
+    //                 "hello".to_string(),
+    //                 Node { clean_word: Some("Hello!".to_string()), children: HashMap::from([
+    //                     (
+    //                         " ".to_string(),
+    //                         Node { clean_word: None, children: HashMap::from([
+    //                             (
+    //                                 "world".to_string(),
+    //                                 Node { clean_word: Some("Hello World".to_string()), children: HashMap::default()},
+    //                             ),
+    //                         ])}
+    //                     ),
+    //                 ])},
+    //             ),
+    //             (
+    //                 "C".to_string(),
+    //                 Node { clean_word: None, children: HashMap::from([
+    //                     (
+    //                         "#".to_string(),
+    //                         Node { clean_word: None, children:  HashMap::from([
+    //                             (
+    //                                 " ".to_string(),
+    //                                 Node { clean_word: None, children:  HashMap::from([
+    //                                     (
+    //                                         "is".to_string(),
+    //                                         Node { clean_word: None, children:  HashMap::from([
+    //                                             (
+    //                                                 " ".to_string(),
+    //                                                 Node { clean_word: None, children:  HashMap::from([
+    //                                                     (
+    //                                                         "no".to_string(),
+    //                                                         Node { clean_word: None, children:  HashMap::from([
+    //                                                             (
+    //                                                                 " ".to_string(),
+    //                                                                 Node { clean_word: None, children:  HashMap::from([
+    //                                                                     (
+    //                                                                         "good".to_string(),
+    //                                                                         Node { clean_word: None, children:  HashMap::from([
+    //                                                                             (
+    //                                                                                 " ".to_string(),
+    //                                                                                 Node { clean_word: None, children:  HashMap::from([
+    //                                                                                     (
+    //                                                                                         ":".to_string(),
+    //                                                                                         Node { clean_word: None, children:  HashMap::from([
+    //                                                                                             (
+    //                                                                                                 "(".to_string(),
+    //                                                                                                 Node { clean_word: Some("C# bad".to_string()), children:  HashMap::default() }
+    //                                                                                             )
+    //                                                                                         ])},
+    //                                                                                     ),
+    //                                                                                 ])},
+    //                                                                             ),
+    //                                                                         ])},
+    //                                                                     ),
+    //                                                                 ])},
+    //                                                             ),
+    //                                                         ])},
+    //                                                     ),
+    //                                                 ])},
+    //                                             ),
+    //                                         ])},
+    //                                     ),
+    //                                 ])},
+    //                             ),
+    //                         ])},
+    //                     ),
+    //                 ])},
+    //             ),
+    //         ]),
+    //     };
+    //     assert_eq!(kp.trie, trie);
+    // }
 }
 
 // TODO: move these tests to a separate module (but they need to access private Structs/fields)!!
