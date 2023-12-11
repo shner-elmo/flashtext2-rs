@@ -125,26 +125,6 @@ impl Default for KeywordProcessor {
     }
 }
 
-// impl<'a> FromIterator<&str> for KeywordProcessor {
-//     fn from_iter<'b, I: IntoIterator<Item=&'b str>>(iter: I) -> Self {
-//         let mut this = Self::new(false);
-//         for word in iter {
-//             this.add_keyword(word.as_ref(), word.as_ref());
-//         }
-//         this
-//     }
-// }
-//
-// impl<'a> FromIterator<(&str, &str)> for KeywordProcessor {
-//     fn from_iter<I: IntoIterator<Item=(&'a str, &'a str)>>(iter: I) -> Self {
-//         let mut this = Self::new(false);
-//         for (word, clean_word) in iter {
-//             this.add_keyword(word.as_ref(), clean_word.as_ref());
-//         }
-//         this
-//     }
-// }
-
 struct KeywordExtractor<'a> {
     idx: usize,
     tokens: Vec<(usize, &'a str)>,
@@ -168,9 +148,9 @@ impl<'a> Iterator for KeywordExtractor<'a> {
     fn next(&mut self) -> Option<Self::Item> {
         let mut node = self.trie;
         let mut longest_sequence = None; // a keyword is essentially a sequence of tokens
-        // we need to remember the index to be able to rollback our `idx` if we are following
-        // a "fake" sequence, and also to know the (start of the) span of the sequence if we do
-        // find a match.
+                                         // we need to remember the index to be able to rollback our `idx` if we are following
+                                         // a "fake" sequence, and also to know the (start of the) span of the sequence if we do
+                                         // find a match.
         let mut traversal_start_idx = self.idx;
 
         while self.idx < self.tokens.len() {
