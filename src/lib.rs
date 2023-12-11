@@ -5,7 +5,7 @@ use unicode_segmentation::UnicodeSegmentation;
 
 #[derive(PartialEq, Debug, Default)]
 struct Node {
-    clean_token: Option<String>, // if clean_token is `Some` it means that we've reached the end of a keyword
+    clean_word: Option<String>, // if clean_word is `Some` it means that we've reached the end of a keyword
     children: HashMap<String, Node>,
 }
 
@@ -43,12 +43,13 @@ impl KeywordProcessor {
     //     &self.trie
     // }
 
-    pub fn add_keyword(&mut self, word: &str, clean_token: &str) {
+    #[inline]
+    pub fn add_keyword<T: AsRef<str>>(&mut self, word: T, clean_word: T) {
         let normalized_word = {
             if !self.case_sensitive {
-                word.to_lowercase()
+                word.as_ref().to_lowercase()
             } else {
-                word.to_string()
+                word.as_ref().to_string()
             }
         };
 
@@ -59,11 +60,32 @@ impl KeywordProcessor {
         }
 
         // increment `len` only if the keyword isn't already there
-        if trie.clean_token.is_none() {
+        if trie.clean_word.is_none() {
             self.len += 1;
         }
-        // but even if there is already a keyword, the user can still overwrite its `clean_token`
-        trie.clean_token = Some(clean_token.to_string());
+        // but even if there is already a keyword, the user can still overwrite its `clean_word`
+        trie.clean_word = Some(clean_word.as_ref().to_string());
+    }
+
+    pub fn add_keywords_from_iter<I, T>(&mut self, iter: I)
+    where
+        I: IntoIterator<Item = T>,
+        T: AsRef<str> + Clone,
+    {
+        for word in iter {
+            let clean_word = word.clone();
+            self.add_keyword(word, clean_word);
+        }
+    }
+
+    pub fn add_keywords_with_clean_word_from_iter<I, T>(&mut self, iter: I)
+    where
+        I: IntoIterator<Item = (T, T)>,
+        T: AsRef<str> + Clone,
+    {
+        for (word, clean_word) in iter {
+            self.add_keyword(word, clean_word);
+        }
     }
 
     pub fn extract_keywords<'a>(&'a self, text: &'a str) -> impl Iterator<Item = String> + 'a {
@@ -79,6 +101,9 @@ impl KeywordProcessor {
 
     pub fn replace_keywords(&self, text: &str) -> String {
         let mut string = String::with_capacity(text.len());
+        // the `prev_end` is necessary to adjust the span as we replace the `word` with its
+        // `clean_word`. because if their length is not the same, the next `(start, end)` span
+        // wont be accurate.
         let mut prev_end = 0;
         for (keyword, start, end) in self.extract_keywords_with_span(text) {
             string += &text[prev_end..start];
@@ -87,7 +112,9 @@ impl KeywordProcessor {
         }
         string += &text[prev_end..];
 
+        // if a `word` is bigger than its `clean_word` then it will over-allocate
         string.shrink_to_fit();
+
         string
     }
 }
@@ -98,21 +125,21 @@ impl Default for KeywordProcessor {
     }
 }
 
-// impl FromIterator<&str> for KeywordProcessor {
-//     fn from_iter<'a, T: IntoIterator<Item=&'a str>>(iter: T) -> Self {
+// impl<'a> FromIterator<&str> for KeywordProcessor {
+//     fn from_iter<'b, I: IntoIterator<Item=&'b str>>(iter: I) -> Self {
 //         let mut this = Self::new(false);
 //         for word in iter {
-//             this.add_keyword(word, word);
+//             this.add_keyword(word.as_ref(), word.as_ref());
 //         }
 //         this
 //     }
 // }
 //
-// impl FromIterator<(&str, &str)> for KeywordProcessor {
-//     fn from_iter<'a, T: IntoIterator<Item=(&'a str, &'a str)>>(iter: T) -> Self {
+// impl<'a> FromIterator<(&str, &str)> for KeywordProcessor {
+//     fn from_iter<I: IntoIterator<Item=(&'a str, &'a str)>>(iter: I) -> Self {
 //         let mut this = Self::new(false);
-//         for (word, clean_token) in iter {
-//             this.add_keyword(word, clean_token);
+//         for (word, clean_word) in iter {
+//             this.add_keyword(word.as_ref(), clean_word.as_ref());
 //         }
 //         this
 //     }
@@ -139,7 +166,7 @@ impl Iterator for KeywordExtractor<'_> {
 
     fn next(&mut self) -> Option<Self::Item> {
         let mut node = self.trie;
-        let mut longest_sequence = None;
+        let mut longest_sequence = None; // a keyword is essentially a sequence of tokens
         // we need to remember the index to be able to rollback our `idx` if we are following
         // a "fake" sequence, and also to know the (start of the) span of the sequence if we do
         // find a match.
@@ -151,9 +178,9 @@ impl Iterator for KeywordExtractor<'_> {
 
             if let Some(child) = node.children.get(token) {
                 node = child;
-                if let Some(clean_token) = &node.clean_token {
+                if let Some(clean_word) = &node.clean_word {
                     longest_sequence = Some((
-                        clean_token.clone(),
+                        clean_word.clone(),
                         self.tokens[traversal_start_idx].0,
                         token_start_idx + token.len(),
                     ));
@@ -191,6 +218,27 @@ mod tests {
         };
         assert_eq!(kp, KeywordProcessor::default());
     }
+
+    // #[test]
+    // fn from_iter_strings() {
+    //     let kp = KeywordProcessor::from_iter(["hello", "world"]);
+    //     assert_eq!(kp.extract_keywords("hello world").collect::<Vec<_>>(), ["hello", "world"]);
+    //
+    //     let kp = KeywordProcessor::from_iter(vec!["hello", "world"]);
+    //     assert_eq!(kp.extract_keywords("hello world").collect::<Vec<_>>(), ["hello", "world"]);
+    //
+    //     let kp = KeywordProcessor::from_iter(HashSet::from(["hello", "world"]));
+    //     assert_eq!(kp.extract_keywords("hello world").collect::<Vec<_>>(), ["hello", "world"]);
+    //
+    //     let kp = KeywordProcessor::from_iter([&"hello", &"world"]);
+    //     assert_eq!(kp.extract_keywords("hello world").collect::<Vec<_>>(), ["hello", "world"]);
+    //
+    //     let kp = KeywordProcessor::from_iter(["hello".to_string(), "world".to_string()]);
+    //     assert_eq!(kp.extract_keywords("hello world").collect::<Vec<_>>(), ["hello", "world"]);
+    //
+    //     let kp = KeywordProcessor::from_iter([&"hello".to_string(), &"world".to_string()]);
+    //     assert_eq!(kp.extract_keywords("hello world").collect::<Vec<_>>(), ["hello", "world"]);
+    // }
 
     #[test]
     fn test_split_text() {
@@ -338,7 +386,7 @@ mod tests {
     //     // empty
     //     let kp = KeywordProcessor::new(true);
     //     let trie = Node {
-    //         clean_token: None,
+    //         clean_word: None,
     //         children: HashMap::default(),
     //     };
     //     assert_eq!(kp.trie, trie);
@@ -351,21 +399,21 @@ mod tests {
     //     kp.add_keyword("C# is no good :(", "C# bad");
     //
     //     let trie = Node {
-    //         clean_token: None,
+    //         clean_word: None,
     //         children: HashMap::from([
     //             (
     //                 "hey".to_string(),
-    //                 Node { clean_token: Some("Hey".to_string()), children: HashMap::default()},
+    //                 Node { clean_word: Some("Hey".to_string()), children: HashMap::default()},
     //             ),
     //             (
     //                 "hello".to_string(),
-    //                 Node { clean_token: Some("Hello!".to_string()), children: HashMap::from([
+    //                 Node { clean_word: Some("Hello!".to_string()), children: HashMap::from([
     //                     (
     //                         " ".to_string(),
-    //                         Node { clean_token: None, children: HashMap::from([
+    //                         Node { clean_word: None, children: HashMap::from([
     //                             (
     //                                 "world".to_string(),
-    //                                 Node { clean_token: Some("Hello World".to_string()), children: HashMap::default()},
+    //                                 Node { clean_word: Some("Hello World".to_string()), children: HashMap::default()},
     //                             ),
     //                         ])}
     //                     ),
@@ -373,37 +421,37 @@ mod tests {
     //             ),
     //             (
     //                 "C".to_string(),
-    //                 Node { clean_token: None, children: HashMap::from([
+    //                 Node { clean_word: None, children: HashMap::from([
     //                     (
     //                         "#".to_string(),
-    //                         Node { clean_token: None, children:  HashMap::from([
+    //                         Node { clean_word: None, children:  HashMap::from([
     //                             (
     //                                 " ".to_string(),
-    //                                 Node { clean_token: None, children:  HashMap::from([
+    //                                 Node { clean_word: None, children:  HashMap::from([
     //                                     (
     //                                         "is".to_string(),
-    //                                         Node { clean_token: None, children:  HashMap::from([
+    //                                         Node { clean_word: None, children:  HashMap::from([
     //                                             (
     //                                                 " ".to_string(),
-    //                                                 Node { clean_token: None, children:  HashMap::from([
+    //                                                 Node { clean_word: None, children:  HashMap::from([
     //                                                     (
     //                                                         "no".to_string(),
-    //                                                         Node { clean_token: None, children:  HashMap::from([
+    //                                                         Node { clean_word: None, children:  HashMap::from([
     //                                                             (
     //                                                                 " ".to_string(),
-    //                                                                 Node { clean_token: None, children:  HashMap::from([
+    //                                                                 Node { clean_word: None, children:  HashMap::from([
     //                                                                     (
     //                                                                         "good".to_string(),
-    //                                                                         Node { clean_token: None, children:  HashMap::from([
+    //                                                                         Node { clean_word: None, children:  HashMap::from([
     //                                                                             (
     //                                                                                 " ".to_string(),
-    //                                                                                 Node { clean_token: None, children:  HashMap::from([
+    //                                                                                 Node { clean_word: None, children:  HashMap::from([
     //                                                                                     (
     //                                                                                         ":".to_string(),
-    //                                                                                         Node { clean_token: None, children:  HashMap::from([
+    //                                                                                         Node { clean_word: None, children:  HashMap::from([
     //                                                                                             (
     //                                                                                                 "(".to_string(),
-    //                                                                                                 Node { clean_token: Some("C# bad".to_string()), children:  HashMap::default() }
+    //                                                                                                 Node { clean_word: Some("C# bad".to_string()), children:  HashMap::default() }
     //                                                                                             )
     //                                                                                         ])},
     //                                                                                     ),
