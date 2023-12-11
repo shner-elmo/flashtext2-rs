@@ -88,14 +88,14 @@ impl KeywordProcessor {
         }
     }
 
-    pub fn extract_keywords<'a>(&'a self, text: &'a str) -> impl Iterator<Item = String> + 'a {
+    pub fn extract_keywords<'a>(&'a self, text: &'a str) -> impl Iterator<Item = &'a str> + 'a {
         KeywordExtractor::new(text, self.case_sensitive, &self.trie).map(|(keyword, _, _)| keyword)
     }
 
     pub fn extract_keywords_with_span<'a>(
         &'a self,
         text: &'a str,
-    ) -> impl Iterator<Item = (String, usize, usize)> + 'a {
+    ) -> impl Iterator<Item = (&'a str, usize, usize)> + 'a {
         KeywordExtractor::new(text, self.case_sensitive, &self.trie)
     }
 
@@ -162,8 +162,8 @@ impl<'a> KeywordExtractor<'a> {
     }
 }
 
-impl Iterator for KeywordExtractor<'_> {
-    type Item = (String, usize, usize);
+impl<'a> Iterator for KeywordExtractor<'a> {
+    type Item = (&'a str, usize, usize);
 
     fn next(&mut self) -> Option<Self::Item> {
         let mut node = self.trie;
@@ -181,7 +181,7 @@ impl Iterator for KeywordExtractor<'_> {
                 node = child;
                 if let Some(clean_word) = &node.clean_word {
                     longest_sequence = Some((
-                        clean_word.clone(),
+                        clean_word.as_str(),
                         self.tokens[traversal_start_idx].0,
                         token_start_idx + token.len(),
                     ));
@@ -202,6 +202,10 @@ impl Iterator for KeywordExtractor<'_> {
         // we will reach this code only in the last item of the iterator,
         // in which case we will return the longest found keyword, or just None.
         longest_sequence
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        (0, Some(self.tokens.len()))
     }
 }
 
