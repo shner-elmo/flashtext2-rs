@@ -89,14 +89,14 @@ impl KeywordProcessor {
     }
 
     pub fn extract_keywords<'a>(&'a self, text: &'a str) -> impl Iterator<Item = String> + 'a {
-        KeywordExtractor::new(text, &self.trie).map(|(keyword, _, _)| keyword)
+        KeywordExtractor::new(text, self.case_sensitive, &self.trie).map(|(keyword, _, _)| keyword)
     }
 
     pub fn extract_keywords_with_span<'a>(
         &'a self,
         text: &'a str,
     ) -> impl Iterator<Item = (String, usize, usize)> + 'a {
-        KeywordExtractor::new(text, &self.trie)
+        KeywordExtractor::new(text, self.case_sensitive, &self.trie)
     }
 
     pub fn replace_keywords(&self, text: &str) -> String {
@@ -152,7 +152,8 @@ struct KeywordExtractor<'a> {
 }
 
 impl<'a> KeywordExtractor<'a> {
-    fn new(text: &'a str, trie: &'a Node) -> Self {
+    fn new(text: &'a str, case_sensitive: bool, trie: &'a Node) -> Self {
+        // TODO: use `case_sensitive` to normalize the `text`
         Self {
             idx: 0,
             tokens: text.split_word_bound_indices().collect(),
