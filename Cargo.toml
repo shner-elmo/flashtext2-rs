@@ -1,6 +1,6 @@
 [package]
 name = "flashtext2"
-version = "0.0.3"
+version = "0.1.0"
 authors = ["Shneor E."]
 edition = "2021"
 license = "GPL-3.0-only"
