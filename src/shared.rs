@@ -8,19 +8,14 @@ pub(crate) struct Node {
 
 #[derive(Default, PartialEq, Debug)]
 pub struct KeywordProcessor {
-    case_sensitive: bool,
     trie: Node,
     len: usize, // the number of keywords the struct contains (not the number of nodes)
 }
 
 impl KeywordProcessor {
-    // pub fn new(case_sensitive: bool) -> Self {
-    //     Self {
-    //         case_sensitive,
-    //         trie: Node::new(case_sensitive),
-    //         len: 0,
-    //     }
-    // }
+    pub fn new() -> Self {
+        Self::default()
+    }
 
     pub fn len(&self) -> usize {
         self.len
