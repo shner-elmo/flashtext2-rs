@@ -1,7 +1,7 @@
 use unicode_segmentation::UnicodeSegmentation;
 
 #[derive(Default, PartialEq, Debug)]
-pub struct Node {
+pub(crate) struct Node {
     clean_word: Option<String>,
     children: super::HashMap<Node>,
 }
