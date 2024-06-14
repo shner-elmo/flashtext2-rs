@@ -1,26 +1,12 @@
-use case_insensitive_hashmap::CaseInsensitiveHashMap;
-use fxhash::FxHashMap;
 use unicode_segmentation::UnicodeSegmentation;
 
-#[derive(PartialEq, Debug)]
+#[derive(Default, PartialEq, Debug)]
 pub struct Node {
     clean_word: Option<String>,
     children: super::HashMap<Node>,
 }
 
-impl Node {
-    fn new(case_sensitive: bool) -> Self {
-        if case_sensitive {
-            Node {clean_word: None, children: FxHashMap::default() }
-        } else {
-            Node {clean_word: None, children: CaseInsensitiveHashMap::new()}
-        }
-    }
-}
-
-
-
-#[derive(PartialEq, Debug)]
+#[derive(Default, PartialEq, Debug)]
 pub struct KeywordProcessor {
     case_sensitive: bool,
     trie: Node,
@@ -28,13 +14,13 @@ pub struct KeywordProcessor {
 }
 
 impl KeywordProcessor {
-    pub fn new(case_sensitive: bool) -> Self {
-        Self {
-            case_sensitive,
-            trie: Node::new(case_sensitive),
-            len: 0,
-        }
-    }
+    // pub fn new(case_sensitive: bool) -> Self {
+    //     Self {
+    //         case_sensitive,
+    //         trie: Node::new(case_sensitive),
+    //         len: 0,
+    //     }
+    // }
 
     pub fn len(&self) -> usize {
         self.len
@@ -61,7 +47,7 @@ impl KeywordProcessor {
         let mut trie = &mut self.trie;
 
         for token in word.as_ref().split_word_bounds() {
-            trie = trie.children.entry(token.to_string()).or_insert_with(|| {Node::new(self.case_sensitive)});
+            trie = trie.children.entry(token.to_string()).or_default();
         }
 
         // increment `len` only if the keyword isn't already there
@@ -120,12 +106,6 @@ impl KeywordProcessor {
         string.shrink_to_fit();
 
         string
-    }
-}
-
-impl Default for KeywordProcessor {
-    fn default() -> Self {
-        Self::new(true)
     }
 }
 
@@ -193,4 +173,3 @@ impl<'a> Iterator for KeywordExtractor<'a> {
         (0, Some(self.tokens.len()))
     }
 }
-
