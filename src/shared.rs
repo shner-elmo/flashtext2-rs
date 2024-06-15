@@ -1,8 +1,8 @@
 use unicode_segmentation::UnicodeSegmentation;
 
 #[derive(Default, PartialEq, Debug)]
-pub(crate) struct Node {
-    clean_word: Option<String>,
+struct Node {
+    clean_word: Option<String>, // TODO: make this hold a reference
     children: super::HashMap<Node>,
 }
 
@@ -32,16 +32,21 @@ impl KeywordProcessor {
     // }
 
     #[inline]
-    pub fn add_keyword<T: AsRef<str> + Clone>(&mut self, word: T) {
+    pub fn add_keyword(&mut self, word: impl Into<String>) {
+        let word = word.into();
         let clean_word = word.clone();
         self.add_keyword_with_clean_word(word, clean_word);
     }
 
     #[inline]
-    pub fn add_keyword_with_clean_word<T: AsRef<str>>(&mut self, word: T, clean_word: T) {
+    pub fn add_keyword_with_clean_word(
+        &mut self,
+        word: impl Into<String>,
+        clean_word: impl Into<String>,
+    ) {
         let mut trie = &mut self.trie;
 
-        for token in word.as_ref().split_word_bounds() {
+        for token in word.into().split_word_bounds() {
             trie = trie.children.entry(token.to_string()).or_default();
         }
 
@@ -50,24 +55,19 @@ impl KeywordProcessor {
             self.len += 1;
         }
         // but even if there is already a keyword, the user can still overwrite its `clean_word`
-        trie.clean_word = Some(clean_word.as_ref().to_string());
+        trie.clean_word = Some(clean_word.into());
     }
 
-    pub fn add_keywords_from_iter<I, T>(&mut self, iter: I)
-    where
-        I: IntoIterator<Item = T>,
-        T: AsRef<str> + Clone,
-    {
+    pub fn add_keywords_from_iter(&mut self, iter: impl IntoIterator<Item = impl Into<String>>) {
         for word in iter {
             self.add_keyword(word);
         }
     }
 
-    pub fn add_keywords_with_clean_word_from_iter<I, T>(&mut self, iter: I)
-    where
-        I: IntoIterator<Item = (T, T)>,
-        T: AsRef<str> + Clone,
-    {
+    pub fn add_keywords_with_clean_word_from_iter(
+        &mut self,
+        iter: impl IntoIterator<Item = (impl Into<String>, impl Into<String>)>,
+    ) {
         for (word, clean_word) in iter {
             self.add_keyword_with_clean_word(word, clean_word);
         }
@@ -114,6 +114,8 @@ impl<'a> KeywordExtractor<'a> {
     fn new(text: &'a str, trie: &'a Node) -> Self {
         Self {
             idx: 0,
+            // TODO: instead of saving all of them in memory inside a Vector, we should save
+            //  N element inside a Deque (N being the number of levels of the trie??)
             tokens: text.split_word_bound_indices().collect(),
             trie,
         }

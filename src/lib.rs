@@ -12,3 +12,6 @@ pub mod case_insensitive {
     mod shared;
     pub use shared::KeywordProcessor;
 }
+
+// TODO: add performance benchmarks using criterion
+// TODO: monitor memory usage while running tests (crate `memory_statsCopy item path`
