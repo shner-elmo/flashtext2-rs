@@ -59,10 +59,9 @@
 //!
 //! ## Case insensitive
 //!
-//! The `KeywordProcessor` struct is defined twice, in two different modules:
-//! `case_sensitive`, and `case_insensitive`,
-//! they both have the same exact methods and signatures, the only difference being the type of 
-//! HashMap used, in the `case_insensitive` module we use the [`case_insensitive_hashmap`](https://docs.rs/case_insensitive_hashmap/latest/case_insensitive_hashmap/).
+//! The `KeywordProcessor` struct is defined in two modules: `case_sensitive` and `case_insensitive`. 
+//! Both modules provide the same methods and signatures; however, the internal string storage 
+//! differs. The `case_insensitive` module utilizes a case-insensitive hashmap ([`case_insensitive_hashmap`]).
 //!
 //! ```
 //! use flashtext2::case_insensitive::KeywordProcessor;
@@ -90,6 +89,9 @@
 //! let found_tokens: Vec<_> = kp.extract_keywords(text).collect();
 //! assert_eq!(found_tokens, tokens);
 //! ```
+//! 
+//! [`case_insensitive_hashmap`]: https://docs.rs/case_insensitive_hashmap/latest/case_insensitive_hashmap
+//! 
 
 
 #[path = "."]
