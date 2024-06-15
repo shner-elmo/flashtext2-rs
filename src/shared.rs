@@ -1,18 +1,18 @@
 use unicode_segmentation::UnicodeSegmentation;
 
 #[derive(Default, PartialEq, Debug)]
-struct Node {
-    clean_word: Option<String>, // TODO: make this hold a reference
-    children: super::HashMap<Node>,
+struct Node<'a> {
+    clean_word: Option<&'a str>, // TODO: make this an enum that can hold a reference
+    children: super::HashMap<'a, Node<'a>>,
 }
 
 #[derive(Default, PartialEq, Debug)]
-pub struct KeywordProcessor {
-    trie: Node,
+pub struct KeywordProcessor<'a> {
+    trie: Node<'a>,
     len: usize, // the number of keywords the struct contains (not the number of nodes)
 }
 
-impl KeywordProcessor {
+impl<'a> KeywordProcessor<'a> {
     pub fn new() -> Self {
         Self::default()
     }
@@ -32,22 +32,21 @@ impl KeywordProcessor {
     // }
 
     #[inline]
-    pub fn add_keyword(&mut self, word: impl Into<String>) {
-        let word = word.into();
-        let clean_word = word.clone();
-        self.add_keyword_with_clean_word(word, clean_word);
+    pub fn add_keyword<S: AsRef<str> + ?Sized>(&mut self, word: &'a S) {
+        let word = word.as_ref();
+        self.add_keyword_with_clean_word(word, word);
     }
 
     #[inline]
-    pub fn add_keyword_with_clean_word(
+    pub fn add_keyword_with_clean_word<S: AsRef<str> + ?Sized>(
         &mut self,
-        word: impl Into<String>,
-        clean_word: impl Into<String>,
+        word: &'a S,
+        clean_word: &'a S, // make this call an `_impl...()` method that takes an option
     ) {
         let mut trie = &mut self.trie;
 
-        for token in word.into().split_word_bounds() {
-            trie = trie.children.entry(token.to_string()).or_default();
+        for token in word.as_ref().split_word_bounds() {
+            trie = trie.children.entry(token).or_default();
         }
 
         // increment `len` only if the keyword isn't already there
@@ -55,29 +54,30 @@ impl KeywordProcessor {
             self.len += 1;
         }
         // but even if there is already a keyword, the user can still overwrite its `clean_word`
-        trie.clean_word = Some(clean_word.into());
+        trie.clean_word = Some(clean_word.as_ref());
     }
 
-    pub fn add_keywords_from_iter(&mut self, iter: impl IntoIterator<Item = impl Into<String>>) {
+    pub fn add_keywords_from_iter<S: AsRef<str> + ?Sized + 'a>(&mut self, iter: impl IntoIterator<Item = &'a S>) {
         for word in iter {
-            self.add_keyword(word);
+            self.add_keyword(word.as_ref());
         }
     }
 
-    pub fn add_keywords_with_clean_word_from_iter(
+    pub fn add_keywords_with_clean_word_from_iter<S: AsRef<str> + ?Sized + 'a>(
         &mut self,
-        iter: impl IntoIterator<Item = (impl Into<String>, impl Into<String>)>,
+        iter: impl IntoIterator<Item = (&'a S, &'a S)>,
     ) {
         for (word, clean_word) in iter {
-            self.add_keyword_with_clean_word(word, clean_word);
+            self.add_keyword_with_clean_word(word.as_ref(), clean_word.as_ref());
         }
     }
 
-    pub fn extract_keywords<'a>(&'a self, text: &'a str) -> impl Iterator<Item = &'a str> + 'a {
+    // TODO: should reference to self be like this??
+    pub fn extract_keywords(&'a self, text: &'a str) -> impl Iterator<Item = &'a str> + 'a {
         KeywordExtractor::new(text, &self.trie).map(|(keyword, _, _)| keyword)
     }
 
-    pub fn extract_keywords_with_span<'a>(
+    pub fn extract_keywords_with_span(
         &'a self,
         text: &'a str,
     ) -> impl Iterator<Item = (&'a str, usize, usize)> + 'a {
@@ -88,7 +88,7 @@ impl KeywordProcessor {
         let mut string = String::with_capacity(text.len());
         // the `prev_end` is necessary to adjust the span as we replace the `word` with its
         // `clean_word`. because if their length is not the same, the next `(start, end)` span
-        // wont be accurate.
+        // won't be accurate.
         let mut prev_end = 0;
         for (keyword, start, end) in self.extract_keywords_with_span(text) {
             string += &text[prev_end..start];
@@ -107,7 +107,7 @@ impl KeywordProcessor {
 struct KeywordExtractor<'a> {
     idx: usize,
     tokens: Vec<(usize, &'a str)>,
-    trie: &'a Node,
+    trie: &'a Node<'a>,
 }
 
 impl<'a> KeywordExtractor<'a> {
@@ -131,7 +131,7 @@ impl<'a> Iterator for KeywordExtractor<'a> {
         // a keyword is essentially a collection/sequence of tokens
         let mut longest_sequence = None;
         // we need to remember the index that we started traversing the trie, to be able to
-        // rollback our `idx` if we are following a "fake" sequence, and also to know the
+        // roll back our `idx` if we are following a "false" sequence, and also to know the
         // span of the sequence if we do find a match.
         let mut traversal_start_idx = self.idx;
 
@@ -141,9 +141,9 @@ impl<'a> Iterator for KeywordExtractor<'a> {
 
             if let Some(child) = node.children.get(token) {
                 node = child;
-                if let Some(clean_word) = &node.clean_word {
+                if let Some(clean_word) = node.clean_word {
                     longest_sequence = Some((
-                        clean_word.as_str(),
+                        clean_word,
                         self.tokens[traversal_start_idx].0,
                         token_start_idx + token.len(),
                     ));

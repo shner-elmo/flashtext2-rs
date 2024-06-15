@@ -13,6 +13,6 @@ readme = "README.md"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-case_insensitive_hashmap = "1.0.0"
 fxhash = "0.2.1"
+unicase = "2.7.0"
 unicode-segmentation = "1.10.1"
