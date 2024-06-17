@@ -57,7 +57,10 @@ impl<'a> KeywordProcessor<'a> {
         trie.clean_word = Some(clean_word.as_ref());
     }
 
-    pub fn add_keywords_from_iter<S: AsRef<str> + ?Sized + 'a>(&mut self, iter: impl IntoIterator<Item = &'a S>) {
+    pub fn add_keywords_from_iter<S: AsRef<str> + ?Sized + 'a>(
+        &mut self,
+        iter: impl IntoIterator<Item = &'a S>,
+    ) {
         for word in iter {
             self.add_keyword(word.as_ref());
         }
@@ -123,6 +126,7 @@ impl<'a> KeywordExtractor<'a> {
 }
 
 impl<'a> Iterator for KeywordExtractor<'a> {
+    // TODO: return a struct or smth instead of a tuple
     type Item = (&'a str, usize, usize);
 
     #[inline]
@@ -162,7 +166,7 @@ impl<'a> Iterator for KeywordExtractor<'a> {
         }
 
         // we will reach this code only in the last item of the iterator,
-        // in which case we will return the longest found keyword, or just None.
+        // in which case we will return the last keyword found, or just None.
         longest_sequence
     }
 

@@ -22,6 +22,8 @@ pub mod case_insensitive {
         K: AsRef<str>,
     {
         pub fn entry<Q: Into<UniCase<K>>>(&mut self, k: Q) -> Entry<UniCase<K>, V> {
+            // TODO: make sure its not doing the ASCII check
+            // TODO: benchmark `into() vs Unicase::unicode()`
             self.inner.entry(k.into())
         }
 
