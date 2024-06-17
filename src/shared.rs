@@ -32,20 +32,19 @@ impl<'a> KeywordProcessor<'a> {
     // }
 
     #[inline]
-    pub fn add_keyword<S: AsRef<str> + ?Sized>(&mut self, word: &'a S) {
-        let word = word.as_ref();
+    pub fn add_keyword(&mut self, word: &'a str) {
         self.add_keyword_with_clean_word(word, word);
     }
 
     #[inline]
-    pub fn add_keyword_with_clean_word<S: AsRef<str> + ?Sized>(
+    pub fn add_keyword_with_clean_word(
         &mut self,
-        word: &'a S,
-        clean_word: &'a S, // make this call an `_impl...()` method that takes an option
+        word: &'a str,
+        clean_word: &'a str, // make this call an `_impl...()` method that takes an option
     ) {
         let mut trie = &mut self.trie;
 
-        for token in word.as_ref().split_word_bounds() {
+        for token in word.split_word_bounds() {
             trie = trie.children.entry(token).or_default();
         }
 
@@ -57,19 +56,16 @@ impl<'a> KeywordProcessor<'a> {
         trie.clean_word = Some(clean_word.as_ref());
     }
 
-    pub fn add_keywords_from_iter<S: AsRef<str> + ?Sized + 'a>(
-        &mut self,
-        iter: impl IntoIterator<Item = &'a S>,
-    ) {
+    pub fn add_keywords_from_iter(&mut self, iter: impl IntoIterator<Item = &'a str>) {
         for word in iter {
             self.add_keyword(word.as_ref());
         }
     }
 
-    pub fn add_keywords_with_clean_word_from_iter<S: AsRef<str> + ?Sized + 'a>(
-        &mut self,
-        iter: impl IntoIterator<Item = (&'a S, &'a S)>,
-    ) {
+    pub fn add_keywords_with_clean_word_from_iter<I>(&mut self, iter: I)
+    where
+        I: IntoIterator<Item = (&'a str, &'a str)>,
+    {
         for (word, clean_word) in iter {
             self.add_keyword_with_clean_word(word.as_ref(), clean_word.as_ref());
         }
